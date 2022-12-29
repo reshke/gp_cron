@@ -47,6 +47,7 @@
 #if (PG_VERSION_NUM >= 100000)
 #include "utils/varlena.h"
 #endif
+#include "utils/timestamp.h"
 
 #include "executor/spi.h"
 #include "catalog/pg_type.h"
@@ -211,8 +212,11 @@ ScheduleCronJob(text *scheduleText, text *commandText, text *databaseText,
 
 	Oid userId = GetUserId();
 	userIdcheckacl = GetUserId();
+#if (PG_VERSION_NUM >= 90500) 
 	username = GetUserNameFromId(userId, false);
-
+#else
+	username = GetUserNameFromId(userId);
+#endif
 	/* check schedule is valid */
 	schedule = text_to_cstring(scheduleText);
 	parsedSchedule = parse_cron_entry(schedule);
@@ -301,8 +305,13 @@ ScheduleCronJob(text *scheduleText, text *commandText, text *databaseText,
 										userIdcheckacl, ACL_CONNECT);
 
 	if (aclresult != ACLCHECK_OK)
+#if (PG_VERSION_NUM >= 90500)
 		elog(ERROR, "User %s does not have CONNECT privilege on %s",
 				GetUserNameFromId(userIdcheckacl, false), database_name);
+#else 
+		elog(ERROR, "User %s does not have CONNECT privilege on %s",
+				GetUserNameFromId(userIdcheckacl), database_name);
+#endif
 
 	argTypes[4] = TEXTOID;
 	argValues[4] = CStringGetTextDatum(database_name);
@@ -666,7 +675,11 @@ cron_unschedule_named(PG_FUNCTION_ARGS)
 	Name jobName = DatumGetName(jobNameDatum);
 
 	Oid userId = GetUserId();
+#if (PG_VERSION_NUM >= 90500)
 	char *userName = GetUserNameFromId(userId, false);
+#else
+	char *userName = GetUserNameFromId(userId);
+#endif
 	Datum userNameDatum = CStringGetTextDatum(userName);
 
 	Relation cronJobsTable = NULL;
@@ -718,7 +731,11 @@ EnsureDeletePermission(Relation cronJobsTable, HeapTuple heapTuple)
 
 	/* check if the current user owns the row */
 	Oid userId = GetUserId();
+#if (PG_VERSION_NUM >= 90500)
 	char *userName = GetUserNameFromId(userId, false);
+#else
+	char *userName = GetUserNameFromId(userId);
+#endif
 
 	bool isNull = false;
 	Datum ownerNameDatum = heap_getattr(heapTuple, Anum_cron_job_username,
@@ -1224,7 +1241,12 @@ AlterJob(int64 jobId, text *scheduleText, text *commandText, text *databaseText,
 	userId = GetUserId();
 	userIdcheckacl = GetUserId();
 
+#if (PG_VERSION_NUM >= 90500)
 	currentuser = GetUserNameFromId(userId, false);
+#else
+	currentuser = GetUserNameFromId(userId);
+#endif
+
 	savedUserId = InvalidOid;
 	savedSecurityContext = 0;
 
@@ -1270,7 +1292,12 @@ AlterJob(int64 jobId, text *scheduleText, text *commandText, text *databaseText,
 		aclresult = pg_database_aclcheck(get_database_oid(database_name, false), userIdcheckacl, ACL_CONNECT);
 
 		if (aclresult != ACLCHECK_OK)
-			elog(ERROR, "User %s does not have CONNECT privilege on %s", GetUserNameFromId(userIdcheckacl, false), database_name);
+
+#if (PG_VERSION_NUM >= 90500)
+	elog(ERROR, "User %s does not have CONNECT privilege on %s", GetUserNameFromId(userIdcheckacl, false), database_name);
+#else
+	elog(ERROR, "User %s does not have CONNECT privilege on %s", GetUserNameFromId(userIdcheckacl), database_name);
+#endif
 
 		argTypes[i] = TEXTOID;
 		argValues[i] = CStringGetTextDatum(database_name);

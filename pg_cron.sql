@@ -25,8 +25,8 @@ CREATE TABLE cron.job (
 	username text not null default current_user
 );
 GRANT SELECT ON cron.job TO public;
-ALTER TABLE cron.job ENABLE ROW LEVEL SECURITY;
-CREATE POLICY cron_job_policy ON cron.job USING (username OPERATOR(pg_catalog.=) current_user);
+--ALTER TABLE cron.job ENABLE ROW LEVEL SECURITY;
+--CREATE POLICY cron_job_policy ON cron.job USING (username OPERATOR(pg_catalog.=) current_user);
 
 CREATE FUNCTION cron.schedule(schedule text, command text)
     RETURNS bigint

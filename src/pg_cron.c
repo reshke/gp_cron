@@ -143,7 +143,9 @@ static void GetBgwTaskFeedback(shm_mq_handle *responseq, CronTask *task, bool ru
 static bool jobCanceled(CronTask *task);
 static bool jobStartupTimeout(CronTask *task, TimestampTz currentTime);
 static char* pg_cron_cmdTuples(char *msg);
+#if 0
 static void bgw_generate_returned_message(StringInfoData *display_msg, ErrorData edata);
+#endif
 
 /* global settings */
 char *CronTableDatabaseName = "postgres";
@@ -474,6 +476,7 @@ cron_error_severity(int elevel)
 	return elevel_char;
 }
 
+#if 0
 /*
  * bgw_generate_returned_message -
  *      generates the message to be inserted into the job_run_details table
@@ -532,7 +535,7 @@ bgw_generate_returned_message(StringInfoData *display_msg, ErrorData edata)
 	if (edata.context != NULL)
 		appendStringInfo(display_msg, "\nCONTEXT: %s", edata.context);
 }
-
+#endif 
 
 /*
  * PgCronLauncherMain is the main entry-point for the background worker
@@ -981,11 +984,17 @@ WaitForLatch(int timeoutMs)
 	/* nothing to do, wait for new jobs */
 #if (PG_VERSION_NUM >= 100000)
 	rc = WaitLatch(MyLatch, waitFlags, timeoutMs, PG_WAIT_EXTENSION);
-#else
+#elif (PG_VERSION_NUM >= 90500)
 	rc = WaitLatch(MyLatch, waitFlags, timeoutMs);
+#else
+	rc = WaitLatch(&MyProc->procLatch, waitFlags, timeoutMs);
 #endif
 
+#if (PG_VERSION_NUM >= 90500)
 	ResetLatch(MyLatch);
+#else
+	ResetLatch(&MyProc->procLatch);
+#endif
 
 	CHECK_FOR_INTERRUPTS();
 
@@ -1361,8 +1370,11 @@ ManageCronTask(CronTask *task, TimestampTz currentTime)
 			shm_toc_estimate_chunk(&e, QUEUE_SIZE);
 			shm_toc_estimate_keys(&e, PG_CRON_NKEYS);
 			segsize = shm_toc_estimate(&e);
-
+#if (PG_VERSION_NUM >= 90500)
 			task->seg = dsm_create(segsize, DSM_CREATE_NULL_IF_MAXSEGMENTS);
+#else
+			task->seg = dsm_create(segsize);
+#endif
 			if (task->seg == NULL)
 			{
 				task->state = CRON_TASK_ERROR;
@@ -1666,7 +1678,7 @@ ManageCronTask(CronTask *task, TimestampTz currentTime)
 			}
 
 			toc = shm_toc_attach(PG_CRON_MAGIC, dsm_segment_address(task->seg));
-			#if PG_VERSION_NUM < 100000
+			#if PG_VERSION_NUM < 100000 && !defined(GP_VERSION_NUM)
 				mq = shm_toc_lookup(toc, PG_CRON_KEY_QUEUE);
 			#else
 				mq = shm_toc_lookup(toc, PG_CRON_KEY_QUEUE, false);
@@ -1891,6 +1903,7 @@ GetBgwTaskFeedback(shm_mq_handle *responseq, CronTask *task, bool running)
 			case 'N':
 			case 'E':
 				{
+#if 0
 					ErrorData	edata;
 					StringInfoData  display_msg;
 
@@ -1913,6 +1926,7 @@ GetBgwTaskFeedback(shm_mq_handle *responseq, CronTask *task, bool running)
 									 task->jobId, display_msg.data)));
 					pfree(display_msg.data);
 
+#endif
 					break;
 				}
 			case 'T':
@@ -1965,7 +1979,9 @@ CronBackgroundWorker(Datum main_arg)
 	char *username;
 	char *command;
 	shm_mq *mq;
+#if 0
 	shm_mq_handle *responseq;
+#endif
 
 	/* handle SIGTERM like regular backend */
 	pqsignal(SIGTERM, die);
@@ -1992,7 +2008,7 @@ CronBackgroundWorker(Datum main_arg)
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 			   errmsg("bad magic number in dynamic shared memory segment")));
 
-	#if PG_VERSION_NUM < 100000
+	#if PG_VERSION_NUM < 100000 && !defined(GP_VERSION_NUM)
 		database = shm_toc_lookup(toc, PG_CRON_KEY_DATABASE);
 		username = shm_toc_lookup(toc, PG_CRON_KEY_USERNAME);
 		command = shm_toc_lookup(toc, PG_CRON_KEY_COMMAND);
@@ -2005,8 +2021,12 @@ CronBackgroundWorker(Datum main_arg)
 	#endif
 
 	shm_mq_set_sender(mq, MyProc);
+#if 0
 	responseq = shm_mq_attach(mq, seg, NULL);
 	pq_redirect_to_shm_mq(seg, responseq);
+#else 
+	shm_mq_attach(mq, seg, NULL);
+#endif
 
 #if (PG_VERSION_NUM < 110000)
 	BackgroundWorkerInitializeConnection(database, username);
@@ -2172,8 +2192,13 @@ ExecuteSqlString(const char *sql)
 		portal = CreatePortal("", true, true);
 		/* Don't display the portal in pg_cursors */
 		portal->visible = false;
+#ifdef GP_VERSION_NUM
+		PortalDefineQuery(portal, NULL, sql, T_Query, commandTag, plantree_list, NULL);
+		PortalStart(portal, NULL, 0, InvalidSnapshot, NULL);
+#else
 		PortalDefineQuery(portal, NULL, sql, commandTag, plantree_list, NULL);
 		PortalStart(portal, NULL, 0, InvalidSnapshot);
+#endif
 		PortalSetResultFormat(portal, 1, &format);		/* binary format */
 
 		--commands_remaining;
